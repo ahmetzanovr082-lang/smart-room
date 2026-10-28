@@ -15,11 +15,12 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from .ai_engine import EnergoAIEngine
-from .config import BASE_DIR, DB_PATH, HOST as DEFAULT_HOST, PORT as DEFAULT_PORT
+from .config import BASE_DIR, DB_PATH, HOST as DEFAULT_HOST, PORT as DEFAULT_PORT, verify_role_password
 from .db_manager import DatabaseManager
 from .validators import (
     ValidationError,
     check_role_permission,
+    issue_role_session_token,
     sanitize_text,
     validate_recommendation_action,
     validate_settings_payload,
@@ -135,7 +136,7 @@ class EnergoCampusApplication:
 
             if method == "POST" and path == "/api/v1/settings":
                 # Для изменения уставок и тарифа требуется роль Энергетика или Администратора
-                effective_token = auth_token or (body or {}).get("role_token", "demo-role-energomanager")
+                effective_token = auth_token or (body or {}).get("role_token", "")
                 role_info = check_role_permission(effective_token, "settings")
                 validated_cfg = validate_settings_payload(body or {})
                 saved_cfg = self.db.update_settings(validated_cfg, user_id=role_info["user_id"])
@@ -158,7 +159,7 @@ class EnergoCampusApplication:
                 }
 
             if method == "POST" and path == "/api/v1/reset":
-                check_role_permission(auth_token, "simulate")
+                check_role_permission(auth_token, "admin")
                 self.db.init_database(force_reset=True)
                 self.db._dedup_cache.clear()
                 return 200, {
@@ -168,14 +169,14 @@ class EnergoCampusApplication:
                 }
 
             if method == "GET" and path == "/api/v1/database/tables":
-                check_role_permission(auth_token, "read")
+                check_role_permission(auth_token, "settings")
                 return 200, {
                     "status": "ok",
                     "tables": self.db.get_database_tables_summary(),
                 }
 
             if method == "GET" and path == "/api/v1/database/table":
-                check_role_permission(auth_token, "read")
+                check_role_permission(auth_token, "settings")
                 tbl_name = str(q.get("name", q.get("table", "rooms"))).strip()
                 try:
                     limit_val = int(q.get("limit", 50))
@@ -187,26 +188,37 @@ class EnergoCampusApplication:
                 }
 
             if method == "POST" and path == "/api/v1/database/query":
-                check_role_permission(auth_token, "read")
+                check_role_permission(auth_token, "admin")
                 query_str = (body or {}).get("query", "")
                 res = self.db.execute_sql_query(query_str)
-                return (200 if res.get("status") == "ok" else 400), res
+                return 200, res
 
             if method == "POST" and path == "/api/v1/database/scenario":
-                check_role_permission(auth_token, "simulate")
-                sc_name = (body or {}).get("scenario", "")
+                sc_name = str((body or {}).get("scenario", "")).strip().lower()
+                if sc_name == "seed_reset":
+                    check_role_permission(auth_token, "admin")
+                elif sc_name == "set_tariff":
+                    check_role_permission(auth_token, "settings")
+                else:
+                    check_role_permission(auth_token, "simulate")
                 res = self.db.execute_scenario(sc_name, params=body or {})
                 res["state"] = self.db.get_all_rooms_state()
                 return 200, res
 
             if method == "POST" and path == "/api/v1/database/update_row":
-                check_role_permission(auth_token, "settings")
+                role_info = check_role_permission(auth_token, "settings")
                 b = body or {}
                 tbl = str(b.get("table", "")).strip()
                 pk_c = str(b.get("pk_column", "")).strip()
                 pk_v = b.get("pk_value")
                 vals = b.get("values", {})
-                res = self.db.update_table_row(table_name=tbl, pk_column=pk_c, pk_value=pk_v, values=vals)
+                res = self.db.update_table_row(
+                    table_name=tbl,
+                    pk_column=pk_c,
+                    pk_value=pk_v,
+                    values=vals,
+                    user_id=role_info["user_id"],
+                )
                 res["state"] = self.db.get_all_rooms_state()
                 return 200, res
 
@@ -215,28 +227,26 @@ class EnergoCampusApplication:
                 req_role = str(b.get("role", "laborant")).strip().lower()
                 pwd = str(b.get("password", "")).strip()
                 if req_role in ("energomanager", "sysadmin", "energy_chief", "sys_admin"):
-                    if pwd != "1111":
+                    if not verify_role_password(req_role, pwd):
                         return 401, {
                             "status": "error",
                             "code": 401,
-                            "message": "Неверный пароль доступа для роли. Требуется пароль: 1111"
+                            "message": "Неверный пароль доступа для выбранной привилегированной роли.",
                         }
-                    target_token = "demo-role-sysadmin" if "sys" in req_role or "admin" in req_role else "demo-role-energomanager"
-                    role_info = check_role_permission(target_token, "read")
+                    session_token, role_info = issue_role_session_token(req_role)
                     return 200, {
                         "status": "ok",
-                        "token": target_token,
+                        "token": session_token,
                         "role": role_info,
-                        "message": f"Доступ разрешён: {role_info['role_name']}"
+                        "message": f"Доступ разрешён: {role_info['role_name']}",
                     }
                 else:
-                    target_token = "demo-role-laborant"
-                    role_info = check_role_permission(target_token, "read")
+                    session_token, role_info = issue_role_session_token("laborant")
                     return 200, {
                         "status": "ok",
-                        "token": target_token,
+                        "token": session_token,
                         "role": role_info,
-                        "message": "Профиль лаборанта активен."
+                        "message": "Профиль лаборанта активен.",
                     }
 
             return 404, {

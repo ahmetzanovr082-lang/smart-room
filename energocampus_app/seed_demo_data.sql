@@ -16,10 +16,10 @@ INSERT INTO roles (role_code, role_name, permissions_json) VALUES
     ('sys_admin', 'Администратор системы', '{"all": true}'::jsonb)
 ON CONFLICT (role_code) DO NOTHING;
 
--- 2. Учётные записи пользователей (демонстрационные хеши паролей)
+-- 2. Учётные записи пользователей (демонстрационные хеши паролей без персональных данных)
 INSERT INTO users (role_id, login, password_hash, full_name, position_title, is_active) VALUES
-    (1, 'lab_operator', '$2b$12$DEMO_HASH_PLACEHOLDER_LABORANT_000000000000000000000', 'Балташев А. Ж.', 'Дежурный лаборант корпуса А', TRUE),
-    (2, 'energy_chief', '$2b$12$DEMO_HASH_PLACEHOLDER_MANAGER_0000000000000000000000', 'Ахметжанов Р. К.', 'Ответственный за энергохозяйство', TRUE),
+    (1, 'lab_operator', '$2b$12$DEMO_HASH_PLACEHOLDER_LABORANT_000000000000000000000', 'Оператор смены № 1', 'Дежурный лаборант корпуса А', TRUE),
+    (2, 'energy_chief', '$2b$12$DEMO_HASH_PLACEHOLDER_MANAGER_0000000000000000000000', 'Главный энергетик корпуса А', 'Ответственный за энергохозяйство', TRUE),
     (3, 'it_engineer',  '$2b$12$DEMO_HASH_PLACEHOLDER_ITADMIN_0000000000000000000000', 'Инженер ИТ-службы', 'Инженер по обслуживанию датчиков', TRUE),
     (4, 'sys_admin',    '$2b$12$DEMO_HASH_PLACEHOLDER_SYSADMIN_000000000000000000000', 'Администратор ИИС', 'Системный администратор', TRUE)
 ON CONFLICT (login) DO NOTHING;

@@ -13,6 +13,7 @@ let state={
   rooms:M.seed(),
   settings:{...M.defaults},
   events:[],
+  roleCode:'laborant',
   roleToken:'demo-role-laborant',
   backendOnline:false,
   modelInfo:{
@@ -26,7 +27,10 @@ let nextSyncCountdown = syncIntervalSec;
 let isSyncPaused = false;
 
 function isPrivilegedUser(){
-  return state.roleToken.includes('energomanager') || state.roleToken.includes('sysadmin');
+  return state.roleCode === 'energomanager' || state.roleCode === 'sysadmin' || state.roleToken.includes('energomanager') || state.roleToken.includes('sysadmin');
+}
+function isAdminUser(){
+  return state.roleCode === 'sysadmin' || state.roleToken.includes('sysadmin');
 }
 try {
   const saved=JSON.parse(localStorage.getItem('energocampus-v1'));
@@ -201,8 +205,8 @@ function database(){
       + `<div class="access-denied-box">
           <div class="alert-symbol" style="margin:0 auto 16px;width:44px;height:44px;background:#fcf4e4;color:#ba8638">${icon('settings')}</div>
           <h2>Доступ к разделу базы данных ограничен</h2>
-          <p>Просмотр и редактирование таблиц SQLite разрешены только для ролей <strong>Энергетика</strong> и <strong>Системного администратора</strong>.</p>
-          <button class="button primary" id="auth-request-btn">${icon('users')} Войти в роль с паролем (пароль: 1111)</button>
+          <p>Просмотр и редактирование таблиц SQLite разрешены только для авторизованных ролей <strong>Главного энергетика</strong> и <strong>Системного администратора</strong>.</p>
+          <button class="button primary" id="auth-request-btn">${icon('users')} Переключить роль в профиле пользователя</button>
         </div>`;
   }
 
@@ -331,9 +335,10 @@ function database(){
     <div class="db-sql-section">
       <div class="panel-heading" style="padding:0 0 10px">
         <div>
-          <h2>Интерактивная SQL-консоль к базе данных</h2>
-          <p>Прямое выполнение запросов SELECT, UPDATE, INSERT. Преподаватель может проверить любую выборку.</p>
+          <h2>Интерактивная SQL-консоль к базе данных (режим чтения)</h2>
+          <p>Выполнение одиночных проверочных запросов SELECT и PRAGMA table_info (доступно роли Системного администратора; модифицирующие команды блокируются).</p>
         </div>
+        <span class="badge ${isAdminUser()?'badge-green':'badge-amber'}">${isAdminUser()?'Доступ администратора активен':'Требуется роль Администратора'}</span>
       </div>
       <div class="db-sql-presets">
         <button class="db-preset-btn" data-sql="SELECT room_id, calc_power_kw, temp_c, is_occupied, is_online FROM telemetry_measurements ORDER BY measurement_id DESC LIMIT 6;">Телеметрия 6 кабинетов</button>
@@ -569,9 +574,13 @@ async function runDbScenario(scenarioName, params={}) {
         await syncWithBackend();
         await loadDbTable(currentDbTable, false);
         return;
+      } else {
+        toast(json.message || 'Отказано в выполнении сценария');
+        return;
       }
     } catch(err) {
       toast('Ошибка запроса: ' + err.message);
+      return;
     }
   }
 
@@ -661,13 +670,22 @@ async function runDbSql(query) {
   if(statusEl){ statusEl.textContent = 'Локальный режим: для выполнения произвольного SQL запустите START.bat'; }
 }
 
-function openUserProfileModal() {
+async function verifyOfflinePasswordSha256(pwd) {
+  if (!window.crypto || !window.crypto.subtle) return false;
+  const msgBuffer = new TextEncoder().encode(pwd);
+  const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex === '0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c';
+}
+
+function openUserProfileModal(pendingRole=null) {
   lastFocus = document.activeElement;
-  const roleCode = state.roleToken.includes('sysadmin') ? 'sysadmin' : (state.roleToken.includes('energomanager') ? 'energomanager' : 'laborant');
+  const roleCode = isAdminUser() ? 'sysadmin' : (isPrivilegedUser() ? 'energomanager' : 'laborant');
   const roleNamesMap = {
-    laborant: { title: 'Дежурный лаборант', label: 'Лаборант (дежурный оператор корпуса А)', letter: 'Л' },
-    energomanager: { title: 'Главный энергетик', label: 'Энергетик (управление тарифами и уставками)', letter: 'Э' },
-    sysadmin: { title: 'Системный администратор', label: 'Администратор ИИС (полный доступ)', letter: 'А' }
+    laborant: { title: 'Дежурный лаборант', label: 'Лаборант (дежурный оператор корпуса А)', letter: 'Л', account: 'lab_operator' },
+    energomanager: { title: 'Главный энергетик', label: 'Энергетик (управление тарифами, уставками и БД)', letter: 'Э', account: 'energy_chief' },
+    sysadmin: { title: 'Системный администратор', label: 'Администратор ИИС (полный доступ и адаптация ИИ)', letter: 'А', account: 'sys_admin' }
   };
   const cur = roleNamesMap[roleCode] || roleNamesMap.laborant;
 
@@ -675,7 +693,7 @@ function openUserProfileModal() {
     <div class="drawer-header">
       <div>
         <span class="eyebrow">РОЛЕВАЯ МОДЕЛЬ RBAC · МОДУЛЬ 3</span>
-        <h2 id="drawer-title">Профиль пользователя</h2>
+        <h2 id="drawer-title">Профиль и смена роли</h2>
         <p>${cur.label}</p>
       </div>
       <button class="icon-button" id="close-drawer" aria-label="Закрыть">${icon('close')}</button>
@@ -684,34 +702,42 @@ function openUserProfileModal() {
       <div class="profile-hero">
         <div class="profile-avatar-large">${cur.letter}</div>
         <div class="profile-meta">
-          <h3>Ахметжанов Р. А.</h3>
-          <p>Дежурный оператор компьютерных классов корпуса «А»</p>
+          <h3>Учётная запись: <code>${cur.account}</code></h3>
+          <p>${cur.label}</p>
           <span class="badge badge-green" style="margin-top:6px">${cur.title}</span>
         </div>
       </div>
       <div class="section-title">
-        <h3>${icon('chip')}Права доступа текущей роли в ИИС</h3>
+        <h3>${icon('chip')}Матрица разрешений активной роли</h3>
       </div>
       <div class="profile-perms">
         <div class="profile-perm-row">${icon('check')} <span><strong>read</strong> — Просмотр телеметрии, графиков нагрузок и дашбордов</span></div>
         <div class="profile-perm-row">${icon('check')} <span><strong>simulate</strong> — Моделирование датчиков ESP32 и учебных сценариев</span></div>
         <div class="profile-perm-row">${icon('check')} <span><strong>recommend_action</strong> — Принятие, подтверждение и отклонение рекомендаций XAI</span></div>
-        <div class="profile-perm-row" style="${roleCode==='laborant'?'opacity:0.5':''}">
+        <div class="profile-perm-row" style="${roleCode==='laborant'?'opacity:0.55':''}">
           ${icon(roleCode==='laborant'?'close':'check')}
-          <span><strong>settings</strong> — Изменение тарифов, редактирование записей БД ${roleCode==='laborant'?'(требуется роль Энергетика, пароль: 1111)':'(активно)'}</span>
+          <span><strong>settings</strong> — Изменение тарифов, просмотр и редактирование таблиц БД ${roleCode==='laborant'?'(требуется роль Энергетика или Администратора)':'(разрешено)'}</span>
         </div>
-        <div class="profile-perm-row" style="${roleCode==='sysadmin'?'':'opacity:0.5'}">
+        <div class="profile-perm-row" style="${roleCode==='sysadmin'?'':'opacity:0.55'}">
           ${icon(roleCode==='sysadmin'?'check':'close')}
-          <span><strong>adapt_model</strong> — Дообучение и адаптация моделей ИИ ${roleCode==='sysadmin'?'(активно)':'(требуется роль Администратора, пароль: 1111)'}</span>
+          <span><strong>adapt_model / admin</strong> — Адаптация модели ИИ, SQL-консоль чтения и сброс БД ${roleCode==='sysadmin'?'(разрешено)':'(требуется роль Системного администратора)'}</span>
         </div>
       </div>
       <div class="role-switcher">
-        <h4>Быстрое переключение роли (защищено паролем 1111):</h4>
+        <h4>Демонстрационное переключение роли доступа (RBAC):</h4>
         <div class="role-buttons">
           <button class="role-btn ${roleCode==='laborant'?'active':''}" data-switch-role="laborant">Лаборант (Л)</button>
           <button class="role-btn ${roleCode==='energomanager'?'active':''}" data-switch-role="energomanager">Энергетик (Э) 🔒</button>
           <button class="role-btn ${roleCode==='sysadmin'?'active':''}" data-switch-role="sysadmin">Администратор (А) 🔒</button>
         </div>
+        <form id="role-auth-form" style="margin-top:14px;display:${pendingRole?'block':'none'};padding:14px;background:#f4f8f5;border:1px solid #d5e3d8;border-radius:12px">
+          <label style="display:block;font-weight:600;margin-bottom:6px" id="role-auth-label">Подтверждение входа в роль «${pendingRole ? roleNamesMap[pendingRole].title : ''}»</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="password" id="role-password-input" placeholder="Введите пароль роли" autocomplete="off" style="flex:1;padding:8px 12px;border:1px solid #c5d6c9;border-radius:8px">
+            <button type="submit" class="button primary">Подтвердить</button>
+          </div>
+          <p class="small-text" style="margin:6px 0 0;color:#54675c" id="role-auth-msg">Проверка выполняется на сервере (/api/v1/auth/role) с выдачей сессионного токена.</p>
+        </form>
       </div>
     </div>
   `;
@@ -720,10 +746,65 @@ function openUserProfileModal() {
   document.body.style.overflow = 'hidden';
   $('#close-drawer').onclick = closeRoom;
 
+  let targetRole = pendingRole;
+
+  async function performRoleSwitch(r, pwd) {
+    const info = roleNamesMap[r];
+    if (state.backendOnline) {
+      try {
+        const res = await fetch(API_BASE + '/api/v1/auth/role', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({role: r, password: pwd})
+        });
+        const json = await res.json();
+        if (res.ok && json.status === 'ok') {
+          state.roleCode = r;
+          state.roleToken = json.token;
+          document.querySelectorAll('.avatar').forEach(a => a.textContent = info.letter);
+          if($('#user-display-name')) $('#user-display-name').textContent = info.title;
+          if($('#user-display-role')) $('#user-display-role').textContent = info.label;
+          toast(`Активирована роль: ${info.title}`);
+          log('—', `Авторизован переход в роль: ${info.title}`);
+          render();
+          openUserProfileModal();
+          return;
+        } else {
+          const msg = json.message || 'Неверный пароль доступа для выбранной роли.';
+          toast(msg);
+          if($('#role-auth-msg')) { $('#role-auth-msg').textContent = msg; $('#role-auth-msg').style.color = '#9b3838'; }
+          return;
+        }
+      } catch (err) {
+        toast('Ошибка соединения с сервером авторизации');
+        return;
+      }
+    }
+
+    // Автономный режим (GitHub Pages): сверка SHA-256 без открытого пароля в коде
+    const ok = await verifyOfflinePasswordSha256(pwd);
+    if (ok) {
+      state.roleCode = r;
+      state.roleToken = r === 'sysadmin' ? 'demo-role-sysadmin' : 'demo-role-energomanager';
+      document.querySelectorAll('.avatar').forEach(a => a.textContent = info.letter);
+      if($('#user-display-name')) $('#user-display-name').textContent = info.title;
+      if($('#user-display-role')) $('#user-display-role').textContent = info.label;
+      toast(`Активирована роль: ${info.title} (автономный режим)`);
+      log('—', `Переключение на роль: ${info.title}`);
+      render();
+      openUserProfileModal();
+    } else {
+      const msg = 'Неверный пароль доступа для выбранной роли.';
+      toast(msg);
+      if($('#role-auth-msg')) { $('#role-auth-msg').textContent = msg; $('#role-auth-msg').style.color = '#9b3838'; }
+    }
+  }
+
   $('#drawer').querySelectorAll('[data-switch-role]').forEach(btn => {
     btn.onclick = () => {
       const r = btn.dataset.switchRole;
       if(r === 'laborant') {
+        state.roleCode = 'laborant';
         state.roleToken = 'demo-role-laborant';
         const info = roleNamesMap[r];
         document.querySelectorAll('.avatar').forEach(a => a.textContent = info.letter);
@@ -736,23 +817,27 @@ function openUserProfileModal() {
         return;
       }
 
-      const info = roleNamesMap[r];
-      const pwd = prompt(`Для входа в роль «${info.title}» введите пароль (демо-пароль: 1111):`, '');
-      if(pwd === null) return;
-      if(pwd.trim() === '1111') {
-        state.roleToken = r === 'sysadmin' ? 'demo-role-sysadmin' : 'demo-role-energomanager';
-        document.querySelectorAll('.avatar').forEach(a => a.textContent = info.letter);
-        if($('#user-display-name')) $('#user-display-name').textContent = info.title;
-        if($('#user-display-role')) $('#user-display-role').textContent = info.label;
-        toast(`Успешный вход! Активирована роль: ${info.title} (вкладка База данных доступна)`);
-        log('—', `Авторизован вход в роль: ${info.title} (пароль подтверждён)`);
-        render();
-        openUserProfileModal();
-      } else {
-        toast('Неверный пароль доступа! Для входа введите: 1111');
+      targetRole = r;
+      const formEl = $('#role-auth-form');
+      const labelEl = $('#role-auth-label');
+      const inputEl = $('#role-password-input');
+      if (formEl && labelEl && inputEl) {
+        labelEl.textContent = `Подтверждение входа в роль «${roleNamesMap[r].title}»`;
+        formEl.style.display = 'block';
+        inputEl.value = '';
+        inputEl.focus();
       }
     };
   });
+
+  if ($('#role-auth-form')) {
+    $('#role-auth-form').onsubmit = async (e) => {
+      e.preventDefault();
+      if (!targetRole) return;
+      const pwd = ($('#role-password-input')?.value || '').trim();
+      await performRoleSwitch(targetRole, pwd);
+    };
+  }
 }
 
 function about(){return heading('Энергия, которую можно сохранить','Дипломный проект интеллектуальной системы мониторинга компьютерных классов.')+`<section class="about-hero"><div><span class="eyebrow">ЭНЕРГОКАМПУС · МОДУЛИ 1–3</span><h2>Умный кабинет начинается<br>с понятных данных и объяснимого ИИ.</h2><p>Лаборант видит включённые компьютеры, освещение, открытые окна, температуру и декомпозицию причин XAI. Система поддерживает принятие решений человеком и оценивает потенциал экономии в кВт·ч и тенге.</p><span class="badge badge-green">Гибридный прототип ИИС (${esc(state.modelInfo.version_tag)})</span></div><div class="about-mark">${icon('leaf')}</div></section><section class="panel architecture"><div class="panel-heading"><h2>Многоуровневый контур управления ИИС</h2></div><div class="architecture-flow">${[['temp','1. Сбор данных','Телеметрия ПК · свет · климат'],['chip','2. Анализ ИИ и XAI','Гибридная модель Rules + GBR'],['wifi','3. Решение и контроль','Рекомендация лаборанту (GW-4)'],['grid','4. Коррекция модели','Адаптация Update(Model_t, Data)']].map(([i,t,d],n)=>`<div><span class="architecture-icon">${icon(i)}</span><strong>${t}</strong><p>${d}</p>${n<3?`<span class="flow-arrow">${icon('arrow')}</span>`:''}</div>`).join('')}</div></section><div class="about-columns"><section class="panel about-text"><h2>Что реализовано в Модуле 3</h2><ul><li>Интеграция клиентского интерфейса с сервером Python REST API (/api/v1/*) и реляционной БД (14 таблиц)</li><li>Гибридный ИИ-модуль (детерминированные правила + GradientBoostingRegressor в scikit-learn)</li><li>Блок объяснимости XAI с декомпозицией вкладов факторов и трассировкой формулы (1.1)</li><li>Жизненный цикл рекомендаций: «новая → принята → выполнена / отклонена» с фиксацией processed_at</li><li>Расчёт потенциала экономии в кВт·ч и тенге с фильтрацией по кабинетам</li></ul></section><section class="panel about-text"><h2>Ограничения и честная маркировка данных</h2><p>В демонстрационном контуре используются явно маркированные синтетические временные ряды. Физические датчики и силовые реле к учебным аудиториям не подключены.</p><p>Система реализует концепцию поддержки принятия решений (Decision Support System): отключение оборудования (шаг BP-11) выполняется только после подтверждения лаборантом. При потере связи (S0_OFFLINE) расчёт экономии блокируется.</p></section></div><div class="note">${icon('info')}Прототип работает как с локальным Python-сервером и БД (полный контур Модуля 3), так и автономно на GitHub Pages через локальное хранилище браузера.</div>`;}
@@ -776,13 +861,13 @@ function bindMain(){
   if($('#metric-saving-card')) $('#metric-saving-card').onclick=()=>location.hash='analytics';
 
   // Интерактивный аватар с буквой «Л» и профиль оператора
-  if($('#user-profile-trigger')) $('#user-profile-trigger').onclick=openUserProfileModal;
-  if($('#topbar-avatar')) $('#topbar-avatar').onclick=openUserProfileModal;
-  if($('#sidebar-avatar')) $('#sidebar-avatar').onclick=openUserProfileModal;
+  if($('#user-profile-trigger')) $('#user-profile-trigger').onclick=()=>openUserProfileModal();
+  if($('#topbar-avatar')) $('#topbar-avatar').onclick=()=>openUserProfileModal();
+  if($('#sidebar-avatar')) $('#sidebar-avatar').onclick=()=>openUserProfileModal();
 
   // Обработчики вкладки «База данных»
   if(route==='database'){
-    if($('#auth-request-btn')) $('#auth-request-btn').onclick = openUserProfileModal;
+    if($('#auth-request-btn')) $('#auth-request-btn').onclick = ()=>openUserProfileModal('energomanager');
     if($('#db-sync-toggle-btn')){
       $('#db-sync-toggle-btn').onclick=()=>{
         isSyncPaused = !isSyncPaused;
@@ -862,7 +947,7 @@ function bindMain(){
   if($('#adapt-model-btn'))$('#adapt-model-btn').onclick=async()=>{
     if(state.backendOnline){
       try{
-        const res=await fetch(API_BASE + '/api/v1/ai/adapt',{method:'POST',headers:{'Content-Type':'application/json','X-Role-Token':'demo-role-sysadmin'},body:JSON.stringify({feedback_samples:[{total_pcs:12,is_occupied:false,hour:14,day_of_week:3,temp_c:23.1,open_windows:0,verified_baseline_kw:0.02}]})});
+        const res=await fetch(API_BASE + '/api/v1/ai/adapt',{method:'POST',headers:{'Content-Type':'application/json','X-Role-Token':state.roleToken},body:JSON.stringify({feedback_samples:[{total_pcs:12,is_occupied:false,hour:14,day_of_week:3,temp_c:23.1,open_windows:0,verified_baseline_kw:0.02}]})});
         const j=await res.json();
         if(res.ok&&j.adaptation){
           state.modelInfo.version_tag=j.adaptation.candidate_version;
@@ -870,8 +955,15 @@ function bindMain(){
           toast(`Модель ИИ обновлена до ${j.adaptation.candidate_version}`);
           render();
           return;
+        } else {
+          toast(j.message || 'Для адаптации модели требуется роль Системного администратора');
+          return;
         }
       }catch{}
+    }
+    if(!isAdminUser()){
+      toast('Отказано в доступе: для адаптации модели ИИ требуется роль Системного администратора');
+      return;
     }
     state.modelInfo.version_tag='v1.3-gbr-adapted';
     log('—','Выполнена контролируемая адаптация модели ИИ: версия v1.3-gbr-adapted (MAE=0,0254 кВт)');
@@ -887,17 +979,39 @@ function bindMain(){
     Object.keys(data).forEach(k=>data[k]=Number(data[k]));
     if(data.minTemp>=data.maxTemp){toast('Минимальная температура должна быть ниже максимальной');return;}
     if(data.tariffKzt<=0){toast('Тариф должен быть положительным числом');return;}
-    state.settings={...state.settings,...data};
     if(state.backendOnline){
-      try{await fetch(API_BASE + '/api/v1/settings',{method:'POST',headers:{'Content-Type':'application/json','X-Role-Token':'demo-role-energomanager'},body:JSON.stringify(data)});}catch{}
+      try{
+        const res = await fetch(API_BASE + '/api/v1/settings',{method:'POST',headers:{'Content-Type':'application/json','X-Role-Token':state.roleToken},body:JSON.stringify(data)});
+        const j = await res.json();
+        if(!res.ok){
+          toast(j.message || 'Для изменения уставок и тарифа требуется роль Энергетика или Администратора');
+          return;
+        }
+      }catch{}
+    } else if(!isPrivilegedUser()){
+      toast('Для изменения уставок и тарифа требуется роль Энергетика или Администратора');
+      return;
     }
+    state.settings={...state.settings,...data};
     log('—',`Параметры обновлены: ПК=${data.pcWatts} Вт, Свет=${data.lightWatts} Вт, Тариф=${num(data.tariffKzt,2)} тг/кВт·ч`);
     toast('Параметры и тариф сохранены');
     render();
   };
   if($('#reset-demo'))$('#reset-demo').onclick=async()=>{
     if(confirm('Восстановить исходную демонстрацию? Локальный журнал, БД и настройки будут сброшены.')){
-      if(state.backendOnline){try{await fetch(API_BASE + '/api/v1/reset',{method:'POST',headers:{'X-Role-Token':state.roleToken}});}catch{}}
+      if(state.backendOnline){
+        try{
+          const res = await fetch(API_BASE + '/api/v1/reset',{method:'POST',headers:{'X-Role-Token':state.roleToken}});
+          const j = await res.json();
+          if(!res.ok){
+            toast(j.message || 'Для полного сброса БД требуется роль Системного администратора');
+            return;
+          }
+        }catch{}
+      } else if(!isAdminUser()){
+        toast('Для полного сброса БД требуется роль Системного администратора');
+        return;
+      }
       state={...state,rooms:M.seed(),settings:{...M.defaults},events:[]};
       log('—','Демонстрация сброшена к исходному состоянию');
       render();

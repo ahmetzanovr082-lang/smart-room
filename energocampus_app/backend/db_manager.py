@@ -20,7 +20,9 @@ from .config import DB_PATH, DEFAULT_SETTINGS
 from .validators import (
     ValidationError,
     sanitize_text,
+    validate_readonly_sql_query,
     validate_settings_payload,
+    validate_table_row_update,
     validate_telemetry_payload,
 )
 
@@ -301,10 +303,10 @@ class DatabaseManager:
             roles_data,
         )
 
-        # 2. Пользователи (без реальных паролей — учебные хеши-заглушки)
+        # 2. Пользователи (без реальных паролей и персональных данных — учебные хеши-заглушки)
         users_data = [
-            (1, "lab_operator", "$2b$12$DEMO_HASH_PLACEHOLDER_LABORANT", "Балташев А. Ж.", "Дежурный лаборант корпуса А", 1),
-            (2, "energy_chief", "$2b$12$DEMO_HASH_PLACEHOLDER_MANAGER", "Ахметжанов Р. К.", "Ответственный за энергохозяйство", 1),
+            (1, "lab_operator", "$2b$12$DEMO_HASH_PLACEHOLDER_LABORANT", "Оператор смены № 1", "Дежурный лаборант корпуса А", 1),
+            (2, "energy_chief", "$2b$12$DEMO_HASH_PLACEHOLDER_MANAGER", "Главный энергетик корпуса А", "Ответственный за энергохозяйство", 1),
             (3, "it_engineer", "$2b$12$DEMO_HASH_PLACEHOLDER_ITADMIN", "Инженер ИТ-службы", "Инженер по обслуживанию датчиков", 1),
             (4, "sys_admin", "$2b$12$DEMO_HASH_PLACEHOLDER_SYSADMIN", "Администратор ИИС", "Системный администратор", 1),
         ]
@@ -993,47 +995,32 @@ class DatabaseManager:
             }
 
     def execute_sql_query(self, query: str) -> Dict[str, Any]:
-        """Выполнение пользовательского SQL-запроса через веб-консоль базы данных."""
-        raw_q = (query or "").strip()
-        if not raw_q:
-            raise ValidationError("Запрос не может быть пустым.", field="query", code=422)
+        """
+        Выполнение проверочного SQL-запроса через веб-консоль базы данных.
+        Разрешены только одиночные запросы чтения (SELECT и PRAGMA table_info).
+        """
+        safe_q = validate_readonly_sql_query(query)
 
         with self._connect() as conn:
             cur = conn.cursor()
             try:
-                cur.execute(raw_q)
-                is_select = raw_q.upper().startswith("SELECT") or raw_q.upper().startswith("PRAGMA")
-                if is_select:
-                    rows = cur.fetchmany(100)
-                    cols = list(rows[0].keys()) if rows else []
-                    data = [dict(r) for r in rows]
-                    return {
-                        "status": "ok",
-                        "is_select": True,
-                        "columns": cols,
-                        "rows": data,
-                        "count": len(data),
-                        "message": f"Найдено записей: {len(data)}",
-                    }
-                else:
-                    conn.commit()
-                    return {
-                        "status": "ok",
-                        "is_select": False,
-                        "columns": [],
-                        "rows": [],
-                        "affected_rows": cur.rowcount,
-                        "message": f"Запрос успешно выполнен, затронуто строк: {cur.rowcount}",
-                    }
-            except Exception as exc:
+                cur.execute(safe_q)
+                rows = cur.fetchmany(100)
+                cols = list(rows[0].keys()) if rows else []
+                data = [dict(r) for r in rows]
                 return {
-                    "status": "error",
-                    "code": 400,
-                    "message": f"Ошибка SQL: {str(exc)}",
+                    "status": "ok",
+                    "is_select": True,
+                    "columns": cols,
+                    "rows": data,
+                    "count": len(data),
+                    "message": f"Найдено записей: {len(data)}",
                 }
+            except sqlite3.Error as exc:
+                raise ValidationError(f"Ошибка выполнения SQL-запроса: {exc}", field="query", code=422)
 
     def execute_scenario(self, scenario_name: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Выполнение одного из демонстрационных сценариев прямо из браузера."""
+        """Выполнение одного из 8 демонстрационных сценариев прямо из браузера."""
         p = params or {}
         sc = scenario_name.strip().lower()
 
@@ -1055,7 +1042,7 @@ class DatabaseManager:
                 "light_on": False, "windows_open": 0, "door_open": False,
                 "temp_c": 21.8, "event_note": "Сценарий: в каб. 204 лаборант отключил технику и свет"
             })
-            return {"status": "ok", "scenario": sc, "message": "Каб. 204: Техника выключена, статус S1_NORMAL.", "eval": res}
+            return {"status": "ok", "scenario": sc, "message": "Каб. 204: Техника выключена, статус S2_IDLE.", "eval": res}
 
         elif sc == "window_302_open":
             pcs = [False] * 8
@@ -1118,7 +1105,7 @@ class DatabaseManager:
         values: Dict[str, Any],
         user_id: int = 2
     ) -> Dict[str, Any]:
-        """Обновление записи в таблице БД прямо с веб-интерфейса с валидацией типов и пересчётом состояния."""
+        """Обновление записи в таблице БД с проверкой физических границ VALIDATION_BOUNDS и пересчётом состояния."""
         clean_tbl = table_name.strip().lower()
         if clean_tbl not in ALL_14_TABLES:
             raise ValidationError(f"Таблица '{table_name}' не найдена в схеме ИИС.", field="table", code=404)
@@ -1134,37 +1121,45 @@ class DatabaseManager:
             if pk_column not in valid_cols:
                 raise ValidationError(f"Первичный ключ '{pk_column}' не найден в таблице {clean_tbl}.", field="pk_column", code=422)
 
+            existing_row = cur.execute(f"SELECT * FROM {clean_tbl} WHERE {pk_column} = ?;", (pk_value,)).fetchone()
+            if not existing_row:
+                raise ValidationError(f"Запись с ключом {pk_column}={pk_value} не найдена в таблице {clean_tbl}.", field=pk_column, code=404)
+
+            filtered_input = {k: v for k, v in values.items() if k in valid_cols and k != pk_column}
+            if not filtered_input:
+                raise ValidationError("Нет допустимых полей для обновления.", field="values", code=422)
+
+            # Валидация через VALIDATION_BOUNDS и доменные инварианты validators.py
+            validated_vals = validate_table_row_update(clean_tbl, filtered_input, dict(existing_row))
+
             set_clauses = []
             param_vals = []
-            for col, val in values.items():
-                if col not in valid_cols or col == pk_column:
-                    continue
-                # Преобразование типов в зависимости от схемы
+            for col, val in validated_vals.items():
                 c_type = valid_cols[col].upper()
                 typed_val = val
                 if val is not None and val != "":
-                    if "INT" in c_type:
+                    if "INT" in c_type and not isinstance(val, int):
                         try:
                             typed_val = int(val)
                         except (ValueError, TypeError):
-                            typed_val = val
-                    elif "REAL" in c_type or "FLOAT" in c_type or "DOUBLE" in c_type:
+                            raise ValidationError(f"Поле '{col}' должно быть целым числом.", field=col, code=422)
+                    elif ("REAL" in c_type or "FLOAT" in c_type or "DOUBLE" in c_type) and not isinstance(val, (int, float)):
                         try:
                             typed_val = float(val)
                         except (ValueError, TypeError):
-                            typed_val = val
+                            raise ValidationError(f"Поле '{col}' должно быть числом.", field=col, code=422)
                 else:
                     typed_val = None
 
                 set_clauses.append(f"{col} = ?")
                 param_vals.append(typed_val)
 
-            if not set_clauses:
-                raise ValidationError("Нет допустимых полей для обновления.", field="values", code=422)
-
             sql = f"UPDATE {clean_tbl} SET {', '.join(set_clauses)} WHERE {pk_column} = ?;"
             param_vals.append(pk_value)
-            cur.execute(sql, param_vals)
+            try:
+                cur.execute(sql, param_vals)
+            except sqlite3.IntegrityError as exc:
+                raise ValidationError(f"Нарушение ограничений целостности БД: {exc}", field=pk_column, code=422)
 
             now_iso = datetime.now(timezone.utc).isoformat()
             cur.execute(
@@ -1172,7 +1167,7 @@ class DatabaseManager:
                 (user_id, f"Изменена запись в {clean_tbl} ({pk_column}={pk_value}) через веб-интерфейс", now_iso),
             )
 
-            # Если менялась телеметрия, пересчитываем расчётную мощность
+            # Если менялась телеметрия, пересчитываем расчётную мощность и синхронизируем ПК/статус кабинета
             if clean_tbl == "telemetry_measurements":
                 row = cur.execute(f"SELECT * FROM telemetry_measurements WHERE {pk_column} = ?;", (pk_value,)).fetchone()
                 if row:
@@ -1183,6 +1178,16 @@ class DatabaseManager:
                     light_w = s_row["light_watts"] if s_row else 120
                     kw = round((pcs * pc_w + (light_w if row["light_on"] else 0)) / 1000.0, 2) if row["is_online"] else 0.0
                     cur.execute("UPDATE telemetry_measurements SET calc_power_kw = ? WHERE measurement_id = ?;", (kw, row["measurement_id"]))
+                    if "active_pcs" in validated_vals:
+                        cur.execute(
+                            """
+                            UPDATE workstations_devices
+                            SET is_power_on = CASE WHEN CAST(SUBSTR(device_code, 4) AS INTEGER) <= ? THEN 1 ELSE 0 END,
+                                updated_at = ?
+                            WHERE room_id = ? AND device_type = 'PC';
+                            """,
+                            (pcs, now_iso, rid),
+                        )
 
             conn.commit()
 

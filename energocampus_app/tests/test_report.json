@@ -1,7 +1,7 @@
 {
-  "executed_at": "2026-10-27T14:27:48.784108+00:00",
-  "total_tests": 16,
-  "passed": 16,
+  "executed_at": "2026-10-28T18:22:29.678739+00:00",
+  "total_tests": 22,
+  "passed": 22,
   "failed": 0,
   "errors": 0,
   "ai_metrics": {
@@ -42,7 +42,7 @@
       "expected": "Создано 14 таблиц, 6 кабинетов, 72 ПК, 4 роли",
       "actual": "Таблиц: 14, кабинетов: 6, ПК: 72, ролей: 4",
       "status": "PASSED",
-      "duration_ms": 1.91
+      "duration_ms": 2.44
     },
     {
       "tc_id": "TC-02",
@@ -62,7 +62,7 @@
       "expected": "HTTP 200, класс S1_OCCUPIED, аномалий 0",
       "actual": "HTTP 200, класс S1_OCCUPIED, P=1.17 кВт, аномалий: 0",
       "status": "PASSED",
-      "duration_ms": 0.4
+      "duration_ms": 0.36
     },
     {
       "tc_id": "TC-04",
@@ -82,7 +82,7 @@
       "expected": "HTTP 200, типы аномалий: ['energy', 'climate']",
       "actual": "HTTP 200, типы аномалий: ['energy', 'climate']",
       "status": "PASSED",
-      "duration_ms": 0.32
+      "duration_ms": 0.34
     },
     {
       "tc_id": "TC-06",
@@ -92,7 +92,7 @@
       "expected": "HTTP 422 Unprocessable Entity (field='temp_c')",
       "actual": "HTTP 422, field='temp_c', msg='Температура 999.0 °C выходит за физически допустимый диапазон датчика [-10.0; 55.0] °C.'",
       "status": "PASSED",
-      "duration_ms": 0.02
+      "duration_ms": 0.03
     },
     {
       "tc_id": "TC-07",
@@ -102,7 +102,7 @@
       "expected": "HTTP 422 Unprocessable Entity (field='computers_on')",
       "actual": "HTTP 422, field='computers_on'",
       "status": "PASSED",
-      "duration_ms": 0.01
+      "duration_ms": 0.02
     },
     {
       "tc_id": "TC-08",
@@ -122,7 +122,7 @@
       "expected": "1-й запрос: HTTP 200; 2-й запрос (дубликат): HTTP 409 Conflict",
       "actual": "1-й: HTTP 200; 2-й: HTTP 409 (Отброшен дублирующийся или устаревший пакет телеметрии (sequence=105 <= 105).)",
       "status": "PASSED",
-      "duration_ms": 11.39
+      "duration_ms": 12.64
     },
     {
       "tc_id": "TC-10",
@@ -132,7 +132,7 @@
       "expected": "HTTP 200, processed_at заполнен, в каб. 204 выключены 4 ПК и свет (pcs=0)",
       "actual": "HTTP 200, status=completed, pcs=0",
       "status": "PASSED",
-      "duration_ms": 26.93
+      "duration_ms": 24.6
     },
     {
       "tc_id": "TC-11",
@@ -142,7 +142,7 @@
       "expected": "HTTP 200, count=0, пустой массив rooms=[] без сбоя",
       "actual": "HTTP 200, count=0, rooms=[]",
       "status": "PASSED",
-      "duration_ms": 2.7
+      "duration_ms": 2.95
     },
     {
       "tc_id": "TC-12",
@@ -162,7 +162,7 @@
       "expected": "HTTP 422 при записи, таблица rooms сохранена (6 кабинетов)",
       "actual": "POST HTTP 422, GET HTTP 200, кабинетов в БД: 6",
       "status": "PASSED",
-      "duration_ms": 4.97
+      "duration_ms": 5.57
     },
     {
       "tc_id": "TC-14",
@@ -182,7 +182,7 @@
       "expected": "MAE(GBR) < 0.08 кВт, R2(GBR) > 0.95, MAE(GBR) < MAE(Ridge)",
       "actual": "GBR: MAE=0.0413 кВт, RMSE=0.103 кВт, MAPE=17.36%, R2=0.958 (Ridge MAE=0.0615)",
       "status": "PASSED",
-      "duration_ms": 0.0
+      "duration_ms": 0.01
     },
     {
       "tc_id": "TC-16",
@@ -192,7 +192,67 @@
       "expected": "HTTP 200, accepted=True, версия обновлена до v1.3-gbr-adapted",
       "actual": "HTTP 200, version=v1.3-gbr-adapted, MAE=0.0416 кВт, accepted=True",
       "status": "PASSED",
-      "duration_ms": 103.95
+      "duration_ms": 135.43
+    },
+    {
+      "tc_id": "TC-17",
+      "category": "Безопасность (RBAC Лаборант)",
+      "title": "Блокировка административных операций и редактирования БД для роли Лаборанта",
+      "input": "POST database/query, update_row, scenario(seed_reset, set_tariff), reset с токеном laborant",
+      "expected": "Все 5 запросов отклонены с кодом HTTP 403 Forbidden",
+      "actual": "Коды ответов: query=403, update_row=403, seed_reset=403, set_tariff=403, reset=403",
+      "status": "PASSED",
+      "duration_ms": 0.05
+    },
+    {
+      "tc_id": "TC-18",
+      "category": "Безопасность (RBAC Энергетик)",
+      "title": "Проверка прав Энергетика: доступ к update_row и set_tariff (200), запрет adapt и admin (403)",
+      "input": "Токен energomanager: update_row, set_tariff vs adapt, database/query, seed_reset, reset",
+      "expected": "update_row=200, set_tariff=200; adapt=403, query=403, seed_reset=403, reset=403",
+      "actual": "update_row=200, set_tariff=200, adapt=403, query=403, seed_reset=403, reset=403",
+      "status": "PASSED",
+      "duration_ms": 20.96
+    },
+    {
+      "tc_id": "TC-19",
+      "category": "Безопасность (RBAC Админ)",
+      "title": "Проверка полного доступа Системного администратора к 14 таблицам, SELECT/PRAGMA и seed_reset",
+      "input": "Токен sys_admin: GET database/tables, POST database/query (SELECT, PRAGMA), POST scenario(seed_reset)",
+      "expected": "HTTP 200 для всех операций, возвращено 14 таблиц и 6 строк rooms",
+      "actual": "tables=200 (14 табл.), SELECT=200 (6 стр.), PRAGMA=200, seed_reset=200",
+      "status": "PASSED",
+      "duration_ms": 102.79
+    },
+    {
+      "tc_id": "TC-20",
+      "category": "Безопасность (SQL-консоль)",
+      "title": "Запрет модифицирующих команд (UPDATE, DROP, ATTACH) и множественных запросов в консоли",
+      "input": "POST /api/v1/database/query с UPDATE, DROP TABLE, SELECT;DELETE и ATTACH",
+      "expected": "HTTP 403 Forbidden для всех модифицирующих и составных запросов",
+      "actual": "UPDATE=403, DROP=403, MULTI=403, ATTACH=403 (В SQL-консоли запрещены модифицирующие и адми...)",
+      "status": "PASSED",
+      "duration_ms": 0.05
+    },
+    {
+      "tc_id": "TC-21",
+      "category": "Валидация БД (update_row)",
+      "title": "Отклонение некорректных физических значений в update_row (HTTP 422)",
+      "input": "temp_c=120.0, tariff_kzt_kwh=9500.0, total_pcs=250",
+      "expected": "HTTP 422 Unprocessable Entity по полям temp_c, tariff_kzt_kwh и total_pcs",
+      "actual": "temp_c: HTTP 422, tariff_kzt_kwh: HTTP 422, total_pcs: HTTP 422",
+      "status": "PASSED",
+      "duration_ms": 2.61
+    },
+    {
+      "tc_id": "TC-22",
+      "category": "Аутентификация ролей",
+      "title": "Отклонение неверного пароля (HTTP 401) и выдача случайного сессионного токена (HTTP 200)",
+      "input": "POST /api/v1/auth/role с неверным и верным паролем из переменной окружения",
+      "expected": "Неверный пароль -> HTTP 401; верный пароль -> HTTP 200 + сессионный токен sess_...",
+      "actual": "Неверный: HTTP 401; верный: HTTP 200, токен 'sess_oliYoHi...', доступ к update_row: HTTP 200",
+      "status": "PASSED",
+      "duration_ms": 11.93
     }
   ]
 }

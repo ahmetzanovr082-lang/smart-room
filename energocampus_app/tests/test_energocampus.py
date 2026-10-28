@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 Автоматизированный тестовый набор ИИС «ЭнергоКампус» (Модуль 3).
-Включает 16 верифицируемых тест-кейсов (TC-01 .. TC-16):
-- модульное, интеграционное и системное тестирование API, БД (14 таблиц) и ИИ-модуля;
+Включает 22 верифицируемых тест-кейса (TC-01 .. TC-22):
+- модульное, интеграционное и системное тестирование API (16 маршрутов), БД (14 таблиц) и ИИ-модуля;
 - позитивные, негативные и граничные сценарии (NFR-2, NFR-5);
-- проверка безопасности (экранирование XSS, параметризация против SQLi, ролевой доступ RBAC);
+- проверка безопасности (экранирование XSS, параметризация против SQLi, ролевой доступ RBAC для 3 ролей,
+  блокировка модифицирующих команд в SQL-консоли, валидация границ в update_row, аутентификация ролей);
 - проверка метрик качества регрессии (MAE, RMSE, MAPE, R2) и контура адаптации Update(Model_t, Data_new).
 """
 import json
@@ -404,6 +405,166 @@ class EnergoCampusTestSuite(unittest.TestCase):
             "2 верифицированных наблюдения + токен sys_admin",
             "HTTP 200, accepted=True, версия обновлена до v1.3-gbr-adapted",
             f"HTTP {code}, version={ad['candidate_version']}, MAE={ad['candidate_metrics']['MAE_kw']} кВт, accepted={ad['accepted']}",
+            True, dt
+        )
+
+    def test_17_rbac_laborant_restrictions_on_db_and_admin_ops(self):
+        """TC-17 (Матрица RBAC — Лаборант): Запрет доступа лаборанта к database/query, update_row, seed_reset, set_tariff и reset."""
+        t0 = time.perf_counter()
+        hdr = {"Authorization": "Bearer demo-role-laborant"}
+        c_query, _ = self.app.dispatch("POST", "/api/v1/database/query", body={"query": "SELECT * FROM rooms;"}, headers=hdr)
+        c_upd, _ = self.app.dispatch("POST", "/api/v1/database/update_row", body={"table": "rooms", "pk_column": "room_id", "pk_value": "201", "values": {"total_pcs": 14}}, headers=hdr)
+        c_seed, _ = self.app.dispatch("POST", "/api/v1/database/scenario", body={"scenario": "seed_reset"}, headers=hdr)
+        c_tar, _ = self.app.dispatch("POST", "/api/v1/database/scenario", body={"scenario": "set_tariff", "tariff": 40.0}, headers=hdr)
+        c_rst, _ = self.app.dispatch("POST", "/api/v1/reset", headers=hdr)
+        for code in (c_query, c_upd, c_seed, c_tar, c_rst):
+            self.assertEqual(code, 403)
+        dt = (time.perf_counter() - t0) * 1000
+        self._record(
+            "TC-17", "Безопасность (RBAC Лаборант)", "Блокировка административных операций и редактирования БД для роли Лаборанта",
+            "POST database/query, update_row, scenario(seed_reset, set_tariff), reset с токеном laborant",
+            "Все 5 запросов отклонены с кодом HTTP 403 Forbidden",
+            f"Коды ответов: query={c_query}, update_row={c_upd}, seed_reset={c_seed}, set_tariff={c_tar}, reset={c_rst}",
+            True, dt
+        )
+
+    def test_18_rbac_energomanager_permissions_and_limits(self):
+        """TC-18 (Матрица RBAC — Энергетик): Разрешение update_row и set_tariff, но запрет adapt_model и admin-операций."""
+        t0 = time.perf_counter()
+        hdr = {"Authorization": "Bearer demo-role-energomanager"}
+        c_upd, _ = self.app.dispatch(
+            "POST", "/api/v1/database/update_row",
+            body={"table": "rooms", "pk_column": "room_id", "pk_value": "201", "values": {"total_pcs": 14}},
+            headers=hdr
+        )
+        c_tar, _ = self.app.dispatch(
+            "POST", "/api/v1/database/scenario",
+            body={"scenario": "set_tariff", "tariff": 34.0},
+            headers=hdr
+        )
+        c_adapt, _ = self.app.dispatch("POST", "/api/v1/ai/adapt", body={"feedback_samples": []}, headers=hdr)
+        c_query, _ = self.app.dispatch("POST", "/api/v1/database/query", body={"query": "SELECT * FROM rooms;"}, headers=hdr)
+        c_seed, _ = self.app.dispatch("POST", "/api/v1/database/scenario", body={"scenario": "seed_reset"}, headers=hdr)
+        c_rst, _ = self.app.dispatch("POST", "/api/v1/reset", headers=hdr)
+        self.assertEqual(c_upd, 200)
+        self.assertEqual(c_tar, 200)
+        self.assertEqual(c_adapt, 403)
+        self.assertEqual(c_query, 403)
+        self.assertEqual(c_seed, 403)
+        self.assertEqual(c_rst, 403)
+        dt = (time.perf_counter() - t0) * 1000
+        self._record(
+            "TC-18", "Безопасность (RBAC Энергетик)", "Проверка прав Энергетика: доступ к update_row и set_tariff (200), запрет adapt и admin (403)",
+            "Токен energomanager: update_row, set_tariff vs adapt, database/query, seed_reset, reset",
+            "update_row=200, set_tariff=200; adapt=403, query=403, seed_reset=403, reset=403",
+            f"update_row={c_upd}, set_tariff={c_tar}, adapt={c_adapt}, query={c_query}, seed_reset={c_seed}, reset={c_rst}",
+            True, dt
+        )
+
+    def test_19_rbac_sysadmin_full_access(self):
+        """TC-19 (Матрица RBAC — Администратор): Полный доступ системного администратора ко всем операциям БД и сбросу."""
+        t0 = time.perf_counter()
+        hdr = {"Authorization": "Bearer demo-role-sysadmin"}
+        c_tbls, r_tbls = self.app.dispatch("GET", "/api/v1/database/tables", headers=hdr)
+        c_query, r_query = self.app.dispatch("POST", "/api/v1/database/query", body={"query": "SELECT room_id, total_pcs FROM rooms ORDER BY room_id;"}, headers=hdr)
+        c_pragma, r_pragma = self.app.dispatch("POST", "/api/v1/database/query", body={"query": "PRAGMA table_info(rooms)"}, headers=hdr)
+        c_seed, _ = self.app.dispatch("POST", "/api/v1/database/scenario", body={"scenario": "seed_reset"}, headers=hdr)
+        self.assertEqual(c_tbls, 200)
+        self.assertEqual(len(r_tbls["tables"]), 14)
+        self.assertEqual(c_query, 200)
+        self.assertEqual(r_query["count"], 6)
+        self.assertEqual(c_pragma, 200)
+        self.assertTrue(r_pragma["count"] >= 7)
+        self.assertEqual(c_seed, 200)
+        dt = (time.perf_counter() - t0) * 1000
+        self._record(
+            "TC-19", "Безопасность (RBAC Админ)", "Проверка полного доступа Системного администратора к 14 таблицам, SELECT/PRAGMA и seed_reset",
+            "Токен sys_admin: GET database/tables, POST database/query (SELECT, PRAGMA), POST scenario(seed_reset)",
+            "HTTP 200 для всех операций, возвращено 14 таблиц и 6 строк rooms",
+            f"tables={c_tbls} (14 табл.), SELECT={c_query} ({r_query['count']} стр.), PRAGMA={c_pragma}, seed_reset={c_seed}",
+            True, dt
+        )
+
+    def test_20_sql_console_blocks_modifying_and_multi_statements(self):
+        """TC-20 (Безопасность SQL-консоли): Блокировка UPDATE, DROP, ATTACH и множественных операторов в /api/v1/database/query."""
+        t0 = time.perf_counter()
+        hdr = {"Authorization": "Bearer demo-role-sysadmin"}
+        c_upd, r_upd = self.app.dispatch("POST", "/api/v1/database/query", body={"query": "UPDATE rooms SET total_pcs = 50 WHERE room_id = '201';"}, headers=hdr)
+        c_drop, _ = self.app.dispatch("POST", "/api/v1/database/query", body={"query": "DROP TABLE rooms;"}, headers=hdr)
+        c_multi, _ = self.app.dispatch("POST", "/api/v1/database/query", body={"query": "SELECT * FROM rooms; DELETE FROM rooms;"}, headers=hdr)
+        c_attach, _ = self.app.dispatch("POST", "/api/v1/database/query", body={"query": "ATTACH DATABASE ':memory:' AS aux;"}, headers=hdr)
+        for code in (c_upd, c_drop, c_multi, c_attach):
+            self.assertEqual(code, 403)
+        dt = (time.perf_counter() - t0) * 1000
+        self._record(
+            "TC-20", "Безопасность (SQL-консоль)", "Запрет модифицирующих команд (UPDATE, DROP, ATTACH) и множественных запросов в консоли",
+            "POST /api/v1/database/query с UPDATE, DROP TABLE, SELECT;DELETE и ATTACH",
+            "HTTP 403 Forbidden для всех модифицирующих и составных запросов",
+            f"UPDATE={c_upd}, DROP={c_drop}, MULTI={c_multi}, ATTACH={c_attach} ({r_upd.get('message', '')[:45]}...)",
+            True, dt
+        )
+
+    def test_21_update_row_validation_bounds_enforcement(self):
+        """TC-21 (Валидация update_row): Отклонение (HTTP 422) при выходе значений за границы VALIDATION_BOUNDS при редактировании БД."""
+        t0 = time.perf_counter()
+        hdr = {"Authorization": "Bearer demo-role-energomanager"}
+        c_temp, r_temp = self.app.dispatch(
+            "POST", "/api/v1/database/update_row",
+            body={"table": "telemetry_measurements", "pk_column": "measurement_id", "pk_value": 1, "values": {"temp_c": 120.0}},
+            headers=hdr
+        )
+        c_tar, r_tar = self.app.dispatch(
+            "POST", "/api/v1/database/update_row",
+            body={"table": "system_settings_tariffs", "pk_column": "setting_id", "pk_value": 1, "values": {"tariff_kzt_kwh": 9500.0}},
+            headers=hdr
+        )
+        c_pcs, r_pcs = self.app.dispatch(
+            "POST", "/api/v1/database/update_row",
+            body={"table": "rooms", "pk_column": "room_id", "pk_value": "204", "values": {"total_pcs": 250}},
+            headers=hdr
+        )
+        self.assertEqual(c_temp, 422)
+        self.assertEqual(r_temp["field"], "temp_c")
+        self.assertEqual(c_tar, 422)
+        self.assertEqual(r_tar["field"], "tariff_kzt_kwh")
+        self.assertEqual(c_pcs, 422)
+        self.assertEqual(r_pcs["field"], "total_pcs")
+        dt = (time.perf_counter() - t0) * 1000
+        self._record(
+            "TC-21", "Валидация БД (update_row)", "Отклонение некорректных физических значений в update_row (HTTP 422)",
+            "temp_c=120.0, tariff_kzt_kwh=9500.0, total_pcs=250",
+            "HTTP 422 Unprocessable Entity по полям temp_c, tariff_kzt_kwh и total_pcs",
+            f"temp_c: HTTP {c_temp}, tariff_kzt_kwh: HTTP {c_tar}, total_pcs: HTTP {c_pcs}",
+            True, dt
+        )
+
+    def test_22_auth_role_password_verification_and_session_token(self):
+        """TC-22 (Аутентификация /api/v1/auth/role): Код 401 при неверном пароле и выдача сессионного токена при верном пароле."""
+        t0 = time.perf_counter()
+        os.environ["ENERGOCAMPUS_PASS_MANAGER"] = "TestMgrSecret#2026"
+        try:
+            c_bad, r_bad = self.app.dispatch("POST", "/api/v1/auth/role", body={"role": "energomanager", "password": "wrong_password"})
+            c_ok, r_ok = self.app.dispatch("POST", "/api/v1/auth/role", body={"role": "energomanager", "password": "TestMgrSecret#2026"})
+            self.assertEqual(c_bad, 401)
+            self.assertNotIn("1111", r_bad.get("message", ""))
+            self.assertEqual(c_ok, 200)
+            token = r_ok.get("token", "")
+            self.assertTrue(token.startswith("sess_"))
+            # Проверяем, что выданный сессионный токен даёт право редактировать строку в БД
+            c_use, _ = self.app.dispatch(
+                "POST", "/api/v1/database/update_row",
+                body={"table": "rooms", "pk_column": "room_id", "pk_value": "202", "values": {"total_pcs": 12}},
+                headers={"X-Role-Token": token}
+            )
+            self.assertEqual(c_use, 200)
+        finally:
+            os.environ.pop("ENERGOCAMPUS_PASS_MANAGER", None)
+        dt = (time.perf_counter() - t0) * 1000
+        self._record(
+            "TC-22", "Аутентификация ролей", "Отклонение неверного пароля (HTTP 401) и выдача случайного сессионного токена (HTTP 200)",
+            "POST /api/v1/auth/role с неверным и верным паролем из переменной окружения",
+            "Неверный пароль -> HTTP 401; верный пароль -> HTTP 200 + сессионный токен sess_...",
+            f"Неверный: HTTP {c_bad}; верный: HTTP {c_ok}, токен '{token[:12]}...', доступ к update_row: HTTP {c_use}",
             True, dt
         )
 
