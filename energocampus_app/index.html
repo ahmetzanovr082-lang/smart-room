@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="ЭнергоКампус — демонстрационная панель мониторинга компьютерных классов: энергия, компьютеры, свет и микроклимат.">
+  <meta name="theme-color" content="#123d32"><title>ЭнергоКампус — мониторинг аудиторий</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="#overview"><span class="brand-icon" data-icon="bolt"></span><span>Энерго<span class="brand-light">Кампус</span><small>УМНЫЙ УНИВЕРСИТЕТ</small></span></a>
+    <div class="campus-label"><span data-icon="building"></span><div>Учебный корпус А<small>Система энергомониторинга</small></div></div>
+    <div class="nav-caption">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+    <nav aria-label="Основная навигация">
+      <a href="#overview" data-nav="overview"><span data-icon="grid"></span>Обзор кампуса</a>
+      <a href="#rooms" data-nav="rooms"><span data-icon="door"></span>Кабинеты<span class="nav-count">6</span></a>
+      <a href="#analytics" data-nav="analytics"><span data-icon="chart"></span>Аналитика</a>
+      <a href="#events" data-nav="events"><span data-icon="history"></span>Журнал событий<span class="nav-dot"></span></a>
+      <a href="#database" data-nav="database" id="nav-item-database" style="display:none;"><span data-icon="chip"></span>База данных<span class="nav-count" id="db-nav-count">14</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="eco-note"><span data-icon="leaf"></span><strong>Меньше потерь.<br>Больше возможностей.</strong><p>Забота об энергии начинается<br>с одного кабинета.</p></div>
+      <nav><a href="#settings" data-nav="settings"><span data-icon="settings"></span>Настройки и датчики</a><a href="#about" data-nav="about"><span data-icon="info"></span>О проекте</a></nav>
+      <div class="user" id="user-profile-trigger" role="button" tabindex="0" title="Нажмите, чтобы открыть профиль и роли RBAC"><span class="avatar" id="sidebar-avatar">Л</span><div><strong id="user-display-name">Лаборант</strong><small id="user-display-role">Демонстрационный профиль</small></div><span class="user-dot"></span></div>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><div class="crumb"><button class="icon-button mobile-menu" id="mobile-menu" aria-label="Открыть меню"><span data-icon="menu"></span></button><span>Рабочее пространство</span><span class="slash">/</span><strong id="breadcrumb">Обзор кампуса</strong></div><div class="topbar-right"><span class="demo-badge"><span></span>Демо-режим</span><button class="icon-button notification-button" id="notifications" aria-label="Открыть уведомления"><span data-icon="bell"></span><i></i></button><span class="avatar small" id="topbar-avatar" role="button" tabindex="0" title="Нажмите, чтобы открыть профиль">Л</span></div></header>
+    <main id="main" tabindex="-1"></main>
+    <footer class="page-footer"><span><span class="tiny-dot"></span>ЭнергоКампус <span class="muted">/</span> Дипломный проект</span><span>Демонстрационные данные · Датчики не подключены</span></footer>
+  </div>
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div><aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden></aside>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="model.js"></script><script src="app.js"></script>
+</body></html>
