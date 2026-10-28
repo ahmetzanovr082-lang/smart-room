@@ -59,6 +59,27 @@ CAMPUS_WEEK_CURRENT = [24.0, 28.0, 26.0, 30.0, 22.0, 9.0, 7.0]
 CAMPUS_WEEK_BASE = [34.0, 38.0, 35.0, 41.0, 33.0, 16.0, 13.0]
 
 
+def safe_json_loads(val: Any, default: Any = None) -> Any:
+    """Безопасный парсинг JSON с защитой от HTML-экранирования, одинарных кавычек и ошибок."""
+    if val is None:
+        return default if default is not None else []
+    if isinstance(val, (dict, list)):
+        return val
+    raw = str(val).strip()
+    if not raw:
+        return default if default is not None else []
+    if "&quot;" in raw or "&amp;quot;" in raw or "&#34;" in raw:
+        raw = html.unescape(html.unescape(raw))
+    try:
+        return json.loads(raw)
+    except Exception:
+        try:
+            import ast
+            return ast.literal_eval(raw)
+        except Exception:
+            return default if default is not None else []
+
+
 class DatabaseManager:
     """Управление реляционной БД из 14 таблиц (PostgreSQL 16 DDL / локальное исполнение SQLite 3)."""
 
@@ -742,7 +763,7 @@ class DatabaseManager:
                     "anomaly_type": rec["anomaly_type"],
                     "title": rec["anomaly_title"],
                     "explanation_text": rec["explanation_text"],
-                    "xai_factors": json.loads(rec["xai_factors"] or "[]"),
+                    "xai_factors": safe_json_loads(rec["xai_factors"], default=[]),
                     "action_text": rec["action_text"],
                     "expected_saving_kwh": rec["expected_saving_kwh"],
                     "expected_saving_kzt": rec["expected_saving_kzt"],
@@ -1154,17 +1175,50 @@ class DatabaseManager:
                 set_clauses.append(f"{col} = ?")
                 param_vals.append(typed_val)
 
+            # Валидация внешних ключей (Foreign Keys) перед записью в БД
+            try:
+                fk_list = cur.execute(f"PRAGMA foreign_key_list('{clean_tbl}');").fetchall()
+                for fk in fk_list:
+                    from_col = fk[3]
+                    target_tbl = fk[2]
+                    target_col = fk[4]
+                    if from_col in validated_vals:
+                        fk_val = validated_vals[from_col]
+                        if fk_val is not None and str(fk_val).strip() != "":
+                            target_exists = cur.execute(f"SELECT 1 FROM {target_tbl} WHERE {target_col} = ? LIMIT 1;", (fk_val,)).fetchone()
+                            if not target_exists:
+                                raise ValidationError(
+                                    f"Поле '{from_col}' имеет значение '{fk_val}', которое отсутствует в связанной таблице '{target_tbl}' ({target_col}). Ограничение FOREIGN KEY.",
+                                    field=from_col,
+                                    code=422,
+                                )
+            except sqlite3.OperationalError:
+                pass
+
             sql = f"UPDATE {clean_tbl} SET {', '.join(set_clauses)} WHERE {pk_column} = ?;"
             param_vals.append(pk_value)
             try:
                 cur.execute(sql, param_vals)
             except sqlite3.IntegrityError as exc:
+                err_str = str(exc)
+                if "FOREIGN KEY" in err_str.upper():
+                    raise ValidationError(
+                        "Нарушение связи между таблицами (FOREIGN KEY): указанный идентификатор отсутствует в родительской таблице.",
+                        field=pk_column,
+                        code=422,
+                    )
                 raise ValidationError(f"Нарушение ограничений целостности БД: {exc}", field=pk_column, code=422)
 
             now_iso = datetime.now(timezone.utc).isoformat()
+            valid_user_id = user_id
+            if valid_user_id is not None:
+                user_row = cur.execute("SELECT 1 FROM users WHERE user_id = ? LIMIT 1;", (valid_user_id,)).fetchone()
+                if not user_row:
+                    valid_user_id = None
+
             cur.execute(
                 "INSERT INTO system_events_log (room_id, user_id, event_type, event_text, created_at) VALUES (NULL, ?, 'settings', ?, ?);",
-                (user_id, f"Изменена запись в {clean_tbl} ({pk_column}={pk_value}) через веб-интерфейс", now_iso),
+                (valid_user_id, f"Изменена запись в {clean_tbl} ({pk_column}={pk_value}) через веб-интерфейс", now_iso),
             )
 
             # Если менялась телеметрия, пересчитываем расчётную мощность и синхронизируем ПК/статус кабинета

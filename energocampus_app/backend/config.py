@@ -55,7 +55,7 @@ ROLE_PROFILES = {
         "permissions": ["read", "simulate", "recommend_action", "settings", "export_csv", "analytics"],
     },
     "sys_admin": {
-        "user_id": 3,
+        "user_id": 4,
         "login": "sys_admin",
         "role_code": "sys_admin",
         "role_name": "Администратор системы",

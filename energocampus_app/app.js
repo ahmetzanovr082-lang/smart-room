@@ -444,13 +444,75 @@ function openRowEditor(idx) {
           ${cols.map(c => {
             const isPk = (c === pkCol);
             const val = row[c] !== null && row[c] !== undefined ? row[c] : '';
+            const isFk = !isPk && ['role_id', 'controller_id', 'model_id', 'setting_id', 'anomaly_id', 'run_id', 'assigned_user_id', 'user_id', 'measurement_id'].includes(c);
             const isBool = (typeof val === 'boolean') || (['is_online', 'is_occupied', 'light_on', 'door_open', 'is_power_on', 'is_active'].includes(c));
+
+            if(isPk){
+              return `
+                <div class="row-edit-field">
+                  <label>${c} <span style="color:var(--primary);font-size:11px;font-weight:600">(PK · Первичный ключ)</span></label>
+                  <input name="${c}" value="${esc(val)}" disabled type="text" style="background:rgba(255,255,255,0.04);cursor:not-allowed">
+                </div>
+              `;
+            }
+            if(isFk){
+              return `
+                <div class="row-edit-field">
+                  <label>${c} <span style="color:var(--text-muted);font-size:11px">(FK · Внешний ключ)</span></label>
+                  <input name="${c}" value="${esc(val)}" disabled type="text" style="background:rgba(255,255,255,0.04);cursor:not-allowed" title="Внешний ключ связан с другой таблицей и защищён от искажения">
+                </div>
+              `;
+            }
+            if(c === 'room_id'){
+              const validRooms = ['201', '202', '204', '302', '305', '310'];
+              return `
+                <div class="row-edit-field">
+                  <label>room_id <span style="color:var(--primary);font-size:11px">(Кабинет)</span></label>
+                  <select name="room_id">
+                    ${validRooms.map(r => `<option value="${r}" ${String(val) === r ? 'selected' : ''}>Кабинет № ${r}</option>`).join('')}
+                  </select>
+                </div>
+              `;
+            }
+            if(c === 'current_state'){
+              const states = ['S1_OCCUPIED', 'S2_IDLE', 'S3_EXCESS', 'S0_OFFLINE'];
+              return `
+                <div class="row-edit-field">
+                  <label>current_state <span style="color:var(--text-muted);font-size:11px">(Состояние)</span></label>
+                  <select name="current_state">
+                    ${states.map(s => `<option value="${s}" ${val === s ? 'selected' : ''}>${s}</option>`).join('')}
+                  </select>
+                </div>
+              `;
+            }
+            if(c === 'status' && currentDbTable === 'saving_recommendations'){
+              const statuses = ['new', 'accepted', 'completed', 'rejected'];
+              return `
+                <div class="row-edit-field">
+                  <label>status <span style="color:var(--text-muted);font-size:11px">(Статус)</span></label>
+                  <select name="status">
+                    ${statuses.map(s => `<option value="${s}" ${val === s ? 'selected' : ''}>${s}</option>`).join('')}
+                  </select>
+                </div>
+              `;
+            }
+            if(c === 'severity' && currentDbTable === 'detected_anomalies'){
+              const sevs = ['warning', 'neutral', 'critical'];
+              return `
+                <div class="row-edit-field">
+                  <label>severity <span style="color:var(--text-muted);font-size:11px">(Критичность)</span></label>
+                  <select name="severity">
+                    ${sevs.map(s => `<option value="${s}" ${val === s ? 'selected' : ''}>${s}</option>`).join('')}
+                  </select>
+                </div>
+              `;
+            }
             if(isBool){
               const numVal = (val === true || val === 1 || val === '1') ? 1 : 0;
               return `
                 <div class="row-edit-field">
-                  <label>${c} ${isPk ? '(PK)' : ''}</label>
-                  <select name="${c}" ${isPk ? 'disabled' : ''}>
+                  <label>${c} <span style="color:var(--text-muted);font-size:11px">(Флаг)</span></label>
+                  <select name="${c}">
                     <option value="1" ${numVal === 1 ? 'selected' : ''}>1 (Да / ВКЛ / Активен)</option>
                     <option value="0" ${numVal === 0 ? 'selected' : ''}>0 (Нет / ВЫКЛ / Неактивен)</option>
                   </select>
@@ -459,8 +521,8 @@ function openRowEditor(idx) {
             }
             return `
               <div class="row-edit-field">
-                <label>${c} ${isPk ? '(PK)' : ''}</label>
-                <input name="${c}" value="${esc(val)}" ${isPk ? 'disabled' : ''} type="${typeof val === 'number' ? 'number' : 'text'}" step="any">
+                <label>${c}</label>
+                <input name="${c}" value="${esc(val)}" type="${typeof val === 'number' ? 'number' : 'text'}" step="any">
               </div>
             `;
           }).join('')}

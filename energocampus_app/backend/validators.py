@@ -280,6 +280,22 @@ def validate_table_row_update(
             cleaned[col] = s_val
             continue
 
+        json_fields = {
+            "xai_factors", "derived_features", "permissions_json",
+            "metrics_json", "parameters_json", "feature_importances",
+        }
+        if col in json_fields:
+            if isinstance(raw_val, (dict, list)):
+                cleaned[col] = json.dumps(raw_val, ensure_ascii=False)
+            elif isinstance(raw_val, str):
+                s_raw = html.unescape(raw_val).strip()
+                try:
+                    parsed = json.loads(s_raw)
+                    cleaned[col] = json.dumps(parsed, ensure_ascii=False)
+                except Exception:
+                    raise ValidationError(f"Поле '{col}' должно содержать корректный JSON.", field=col, code=422)
+            continue
+
         if isinstance(raw_val, str):
             cleaned[col] = sanitize_text(raw_val, max_len=500)
         else:
