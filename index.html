@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="ЭнергоКампус — демонстрационная панель мониторинга компьютерных классов: энергия, компьютеры, свет и микроклимат.">
   <meta name="theme-color" content="#123d32"><title>ЭнергоКампус — мониторинг аудиторий</title>
-  <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
@@ -25,12 +25,12 @@
     </div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><div class="crumb"><button class="icon-button mobile-menu" id="mobile-menu" aria-label="Открыть меню"><span data-icon="menu"></span></button><span>Рабочее пространство</span><span class="slash">/</span><strong id="breadcrumb">Обзор кампуса</strong></div><div class="topbar-right"><span class="demo-badge" id="supabase-badge" style="cursor:pointer;" title="Облачная БД Supabase: кликните для ввода anon-ключа или проверки"><span id="sb-dot" style="background:#22c55e;"></span><span id="sb-text">Supabase Cloud</span></span><span class="demo-badge"><span></span>Демо-режим</span><button class="icon-button notification-button" id="notifications" aria-label="Открыть уведомления"><span data-icon="bell"></span><i></i></button><span class="avatar small" id="topbar-avatar" role="button" tabindex="0" title="Нажмите, чтобы открыть профиль">Л</span></div></header>
+    <header class="topbar"><div class="crumb"><button class="icon-button mobile-menu" id="mobile-menu" aria-label="Открыть меню"><span data-icon="menu"></span></button><span>Рабочее пространство</span><span class="slash">/</span><strong id="breadcrumb">Обзор кампуса</strong></div><div class="topbar-right"><span class="demo-badge" id="supabase-badge" style="cursor:pointer;" title="Облачная БД Supabase: кликните для ввода anon-ключа или проверки"><span id="sb-dot" style="background:#22c55e;"></span><b id="sb-text" style="font-weight:400;">Supabase Cloud</b></span><span class="demo-badge"><span></span>Демо-режим</span><button class="icon-button notification-button" id="notifications" aria-label="Открыть уведомления"><span data-icon="bell"></span><i></i></button><span class="avatar small" id="topbar-avatar" role="button" tabindex="0" title="Нажмите, чтобы открыть профиль">Л</span></div></header>
     <main id="main" tabindex="-1"></main>
     <footer class="page-footer"><span><span class="tiny-dot"></span>ЭнергоКампус <span class="muted">/</span> Дипломный проект</span><span>Демонстрационные данные · Датчики не подключены</span></footer>
   </div>
   <div class="drawer-backdrop" id="drawer-backdrop" hidden></div><aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden></aside>
   <div class="toast" id="toast" role="status" hidden></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="model.js"></script><script src="app.js"></script>
+  <script src="model.js?v=4"></script><script src="app.js?v=4"></script>
 </body></html>

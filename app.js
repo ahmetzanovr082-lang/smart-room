@@ -31,6 +31,11 @@ function updateSupabaseBadge(status) {
   const dot = document.getElementById('sb-dot');
   const text = document.getElementById('sb-text');
   if (!badge || !dot || !text) return;
+  text.style.width = 'auto';
+  text.style.height = 'auto';
+  text.style.background = 'transparent';
+  text.style.borderRadius = '0';
+  text.style.display = 'inline';
 
   if (status === 'connected') {
     badge.style.borderColor = '#23654e';
@@ -936,7 +941,7 @@ function renderFallbackTable(tableName) {
       columns: ['room_id', 'building_code', 'floor_num', 'room_name', 'room_type', 'total_pcs', 'current_state'],
       rows: state.rooms.map(r=>({
         room_id: r.id, building_code: 'A', floor_num: r.floor, room_name: r.name,
-        room_type: r.type, total_pcs: r.total, current_state: r.state_class || 'S2_IDLE'
+        room_type: r.type || r.name, total_pcs: r.total, current_state: r.state_class || 'S2_IDLE'
       })),
       total_count: state.rooms.length
     });
@@ -1242,7 +1247,7 @@ function render(){
   route=location.hash.slice(1)||'overview';
   if(!routeNames[route])route='overview';
   const navDb = $('#nav-item-database');
-  if(navDb) navDb.style.display = isPrivilegedUser() ? 'flex' : 'none';
+  if(navDb) navDb.style.display = 'flex';
   $('#breadcrumb').textContent=routeNames[route];
   document.querySelectorAll('[data-nav]').forEach(e=>e.classList.toggle('active',e.dataset.nav===route));
   $('#main').innerHTML=({overview,rooms:()=>heading('Кабинеты','Состояние оборудования, датчиков, объяснений XAI и рекомендаций.',dateButton())+roomsSection(true),analytics,events,database,settings,about}[route])();
