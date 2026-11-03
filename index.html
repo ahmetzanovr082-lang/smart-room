@@ -2,9 +2,9 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="ЭнергоКампус — демонстрационная панель мониторинга компьютерных классов: энергия, компьютеры, свет и микроклимат.">
+  <meta name="description" content="ЭнергоКампус — интеллектуальная информационная система мониторинга компьютерных классов: энергия, компьютеры, свет, микроклимат и облачная БД Supabase (PostgreSQL 16).">
   <meta name="theme-color" content="#123d32"><title>ЭнергоКампус — мониторинг аудиторий</title>
-  <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css?v=4">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
@@ -15,22 +15,22 @@
       <a href="#overview" data-nav="overview"><span data-icon="grid"></span>Обзор кампуса</a>
       <a href="#rooms" data-nav="rooms"><span data-icon="door"></span>Кабинеты<span class="nav-count">6</span></a>
       <a href="#analytics" data-nav="analytics"><span data-icon="chart"></span>Аналитика</a>
-      <a href="#events" data-nav="events"><span data-icon="history"></span>Журнал событий<span class="nav-dot"></span></a>
-      <a href="#database" data-nav="database" id="nav-item-database"><span data-icon="chip"></span>База данных<span class="nav-count" id="db-nav-count">14</span></a>
+      <a href="#events" data-nav="events"><span data-icon="events"></span>Журнал событий<span class="nav-dot"></span></a>
+      <a href="#database" data-nav="database" id="nav-item-database"><span data-icon="database"></span>База данных<span class="nav-count" id="db-nav-count">14</span></a>
     </nav>
     <div class="sidebar-bottom">
       <div class="eco-note"><span data-icon="leaf"></span><strong>Меньше потерь.<br>Больше возможностей.</strong><p>Забота об энергии начинается<br>с одного кабинета.</p></div>
       <nav><a href="#settings" data-nav="settings"><span data-icon="settings"></span>Настройки и датчики</a><a href="#about" data-nav="about"><span data-icon="info"></span>О проекте</a></nav>
-      <div class="user" id="user-profile-trigger" role="button" tabindex="0" title="Нажмите, чтобы открыть профиль и роли RBAC"><span class="avatar" id="sidebar-avatar">Л</span><div><strong id="user-display-name">Лаборант</strong><small id="user-display-role">Демонстрационный профиль</small></div><span class="user-dot"></span></div>
+      <div class="user" id="user-profile-trigger" role="button" tabindex="0" title="Нажмите, чтобы открыть профиль и роли RBAC"><span class="avatar" id="sidebar-avatar">Л</span><div><strong id="user-display-name">Дежурный лаборант</strong><small id="user-display-role">Оператор ИИС · Корпус А</small></div><span class="user-dot"></span></div>
     </div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><div class="crumb"><button class="icon-button mobile-menu" id="mobile-menu" aria-label="Открыть меню"><span data-icon="menu"></span></button><span>Рабочее пространство</span><span class="slash">/</span><strong id="breadcrumb">Обзор кампуса</strong></div><div class="topbar-right"><span class="demo-badge" id="supabase-badge" style="cursor:pointer;" title="Облачная БД Supabase: кликните для ввода anon-ключа или проверки"><span id="sb-dot" style="background:#22c55e;"></span><b id="sb-text" style="font-weight:400;">Supabase Cloud</b></span><span class="demo-badge"><span></span>Демо-режим</span><button class="icon-button notification-button" id="notifications" aria-label="Открыть уведомления"><span data-icon="bell"></span><i></i></button><span class="avatar small" id="topbar-avatar" role="button" tabindex="0" title="Нажмите, чтобы открыть профиль">Л</span></div></header>
+    <header class="topbar"><div class="crumb"><button class="icon-button mobile-menu" id="mobile-menu" aria-label="Открыть меню"><span data-icon="menu"></span></button><span>Рабочее пространство</span><span class="slash">/</span><strong id="breadcrumb">Обзор кампуса</strong></div><div class="topbar-right"><button type="button" class="demo-badge sb-top-pill" id="supabase-badge" title="Нажмите для настройки и проверки облачной БД Supabase (PostgreSQL 16)"><span id="sb-dot" class="sb-dot-indicator"></span><b id="sb-text">Supabase Cloud (Live)</b></button><span class="demo-badge db-schema-pill" id="db-mode-badge"><span class="sb-dot-indicator"></span><b>PostgreSQL 16 · 14 таблиц</b></span><button class="icon-button notification-button" id="notifications" aria-label="Открыть уведомления"><span data-icon="bell"></span><i></i></button><span class="avatar small" id="topbar-avatar" role="button" tabindex="0" title="Нажмите, чтобы открыть профиль">Л</span></div></header>
     <main id="main" tabindex="-1"></main>
-    <footer class="page-footer"><span><span class="tiny-dot"></span>ЭнергоКампус <span class="muted">/</span> Дипломный проект</span><span>Демонстрационные данные · Датчики не подключены</span></footer>
+    <footer class="page-footer"><span><span class="tiny-dot"></span>ЭнергоКампус <span class="muted">/</span> Дипломный проект</span><span id="footer-db-info">СУБД Supabase (PostgreSQL 16) · Реляционная схема: 14 таблиц в 3НФ</span></footer>
   </div>
   <div class="drawer-backdrop" id="drawer-backdrop" hidden></div><aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden></aside>
   <div class="toast" id="toast" role="status" hidden></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="model.js?v=4"></script><script src="app.js?v=4"></script>
+  <script src="model.js?v=6"></script><script src="app.js?v=6"></script>
 </body></html>
