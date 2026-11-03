@@ -111,7 +111,6 @@ function setupSupabaseRealtime() {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           sbRealtimeSubscribed = true;
-          console.log('[Supabase Realtime] Подписка активна');
         }
       });
   } catch(e) {
@@ -156,7 +155,7 @@ async function syncFromSupabase() {
     const { data: dbEvents } = await sbClient
       .from('system_events_log')
       .select('*')
-      .order('event_timestamp', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(40);
 
     const { data: dbTariffs } = await sbClient
@@ -210,10 +209,10 @@ async function syncFromSupabase() {
 
     if (dbEvents && dbEvents.length) {
       state.events = dbEvents.map(e => ({
-        at: new Date(e.event_timestamp).getTime(),
+        at: new Date(e.created_at || Date.now()).getTime(),
         room: e.room_id || 'СИСТЕМА',
-        text: e.message,
-        type: e.severity === 'WARNING' ? 'warning' : e.severity === 'ERROR' ? 'offline' : 'info'
+        text: e.event_text || '',
+        type: (e.event_type === 'energy' || e.event_type === 'climate') ? 'warning' : (e.event_type === 'offline' ? 'offline' : 'info')
       }));
     }
 
@@ -323,7 +322,7 @@ async function syncWithBackend(){
       if(selectedRoom && !$('#drawer').hidden){
         openRoom(selectedRoom, true);
       }
-      const badge = document.querySelector('.demo-badge');
+      const badge = document.querySelector('.demo-badge:not(#supabase-badge)');
       if(badge){
         badge.innerHTML = '<span></span>БД SQLite активна (14 таблиц)';
         badge.style.borderColor = '#23654e';
@@ -332,7 +331,7 @@ async function syncWithBackend(){
     }
   }catch{
     state.backendOnline = false;
-    const badge = document.querySelector('.demo-badge');
+    const badge = document.querySelector('.demo-badge:not(#supabase-badge)');
     if(badge){
       badge.innerHTML = '<span></span>Автономный режим (демо)';
       badge.style.borderColor = '#dfe8dc';
@@ -346,17 +345,26 @@ async function pushRoomTelemetry(r, noteText){
   if(sbClient && sbConnected){
     try {
       const activeCount = r.computers ? r.computers.filter(Boolean).length : 0;
-      const powerKw = Number(M.calcPower(r, state.settings) || 0);
-      const evalState = M.evaluate(r, state.settings);
+      const powerKw = Number(M.power(r, state.settings) || 0);
+      const xai = M.explainRoom(r, state.settings);
+      const ctrlMap = { '201': 1, '202': 2, '204': 3, '301': 4, '302': 5, '305': 6 };
+      const controllerId = ctrlMap[r.id] || 1;
 
       // Обновляем текущее состояние кабинета в таблице rooms
       await sbClient.from('rooms').update({
-        current_state: evalState.state_class
+        current_state: xai.stateClass
+      }).eq('room_id', r.id);
+
+      // Обновляем статус контроллера в room_controllers
+      await sbClient.from('room_controllers').update({
+        is_online: Boolean(r.online),
+        last_seen_at: new Date().toISOString()
       }).eq('room_id', r.id);
 
       // Записываем телеметрию датчиков в telemetry_measurements
       await sbClient.from('telemetry_measurements').insert([{
         room_id: r.id,
+        controller_id: controllerId,
         measured_at: new Date().toISOString(),
         controller_online: r.online ? 1 : 0,
         is_occupied: r.occupied ? 1 : 0,
@@ -394,11 +402,11 @@ async function pushRoomTelemetry(r, noteText){
 
       // Фиксируем системное событие в журнале system_events_log
       await sbClient.from('system_events_log').insert([{
-        event_timestamp: new Date().toISOString(),
         room_id: r.id,
-        event_type: evalState.state_class === 'S3_EXCESS' ? 'ANOMALY_TRIGGERED' : (r.online ? 'OPERATOR_ACTION' : 'DEVICE_OFFLINE'),
-        message: noteText || `Изменение состояния кабинета ${r.id}`,
-        severity: evalState.state_class === 'S3_EXCESS' ? 'WARNING' : (r.online ? 'INFO' : 'ERROR')
+        user_id: 1,
+        event_type: !r.online ? 'offline' : (xai.stateClass === 'S3_EXCESS' ? 'energy' : 'control'),
+        event_text: noteText || `Изменение состояния кабинета ${r.id}`,
+        created_at: new Date().toISOString()
       }]);
     } catch(err) {
       console.warn('[Supabase Live Update Error]:', err);
@@ -663,7 +671,7 @@ function database(){
     </div>`;
 }
 
-async async function loadDbTable(tableName, showLoading=true) {
+async function loadDbTable(tableName, showLoading=true) {
   currentDbTable = tableName;
   const container = $('#db-table-content');
   if(!container) return;
